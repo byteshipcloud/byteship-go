@@ -140,6 +140,15 @@ type CreateUploadInput struct {
 	Visibility     Visibility     `json:"visibility,omitempty"`
 }
 
+// CreateFileUploadInput creates or replaces an upload session for a path.
+type CreateFileUploadInput struct {
+	ByteSize       int64          `json:"byteSize"`
+	ChecksumSHA256 string         `json:"checksumSha256,omitempty"`
+	ContentType    string         `json:"contentType"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
+	Visibility     Visibility     `json:"visibility,omitempty"`
+}
+
 // CreateUploadResponse is returned after creating an upload session.
 type CreateUploadResponse struct {
 	File   PendingFile   `json:"file"`
@@ -209,6 +218,7 @@ type CreateSignedURLResponse struct {
 type SignedURL struct {
 	ExpiresAt time.Time `json:"expiresAt"`
 	FileID    string    `json:"fileId"`
+	Path      string    `json:"path,omitempty"`
 	URL       string    `json:"url"`
 }
 
@@ -239,6 +249,7 @@ type DeleteFileResponse struct {
 // DeletedFile is the tombstone state returned for a deleted file.
 type DeletedFile struct {
 	ID     string     `json:"id"`
+	Path   string     `json:"path,omitempty"`
 	Status FileStatus `json:"status"`
 }
 
@@ -251,6 +262,7 @@ type UploadInput struct {
 	Folder         string
 	Metadata       map[string]any
 	OnProgress     func(UploadProgress)
+	Path           string
 	Reader         io.Reader
 	Visibility     Visibility
 }
@@ -331,6 +343,16 @@ func (c *Client) CreateUpload(ctx context.Context, input CreateUploadInput) (*Cr
 	return &output, nil
 }
 
+// CreateFileUpload creates or replaces an upload session for a file path.
+func (c *Client) CreateFileUpload(ctx context.Context, path string, input CreateFileUploadInput) (*CreateUploadResponse, error) {
+	var output CreateUploadResponse
+	endpointPath := "/v1/files/" + quoteFilePath(path)
+	if err := c.doJSON(ctx, http.MethodPut, endpointPath, input, &output); err != nil {
+		return nil, err
+	}
+	return &output, nil
+}
+
 // CompleteUpload completes an upload session after bytes have reached storage.
 func (c *Client) CompleteUpload(ctx context.Context, uploadID string, input CompleteUploadInput) (*CompleteUploadResponse, error) {
 	var output CompleteUploadResponse
@@ -342,9 +364,9 @@ func (c *Client) CompleteUpload(ctx context.Context, uploadID string, input Comp
 }
 
 // CreateSignedURL creates a temporary URL for a ready private file.
-func (c *Client) CreateSignedURL(ctx context.Context, fileID string, input CreateSignedURLInput) (*CreateSignedURLResponse, error) {
+func (c *Client) CreateSignedURL(ctx context.Context, filePathOrID string, input CreateSignedURLInput) (*CreateSignedURLResponse, error) {
 	var output CreateSignedURLResponse
-	path := "/v1/files/" + url.PathEscape(fileID) + "/signed-url"
+	path := "/v1/files/" + quoteFilePath(filePathOrID) + "/signed-url"
 	if err := c.doJSON(ctx, http.MethodPost, path, input, &output); err != nil {
 		return nil, err
 	}
@@ -352,9 +374,9 @@ func (c *Client) CreateSignedURL(ctx context.Context, fileID string, input Creat
 }
 
 // GetFile fetches file metadata.
-func (c *Client) GetFile(ctx context.Context, fileID string) (*GetFileResponse, error) {
+func (c *Client) GetFile(ctx context.Context, filePathOrID string) (*GetFileResponse, error) {
 	var output GetFileResponse
-	path := "/v1/files/" + url.PathEscape(fileID)
+	path := "/v1/files/" + quoteFilePath(filePathOrID)
 	if err := c.doJSON(ctx, http.MethodGet, path, nil, &output); err != nil {
 		return nil, err
 	}
@@ -362,9 +384,9 @@ func (c *Client) GetFile(ctx context.Context, fileID string) (*GetFileResponse, 
 }
 
 // DeleteFile deletes a file and returns its deleted state.
-func (c *Client) DeleteFile(ctx context.Context, fileID string) (*DeleteFileResponse, error) {
+func (c *Client) DeleteFile(ctx context.Context, filePathOrID string) (*DeleteFileResponse, error) {
 	var output DeleteFileResponse
-	path := "/v1/files/" + url.PathEscape(fileID)
+	path := "/v1/files/" + quoteFilePath(filePathOrID)
 	if err := c.doJSON(ctx, http.MethodDelete, path, nil, &output); err != nil {
 		return nil, err
 	}
@@ -392,15 +414,26 @@ func (c *Client) Upload(ctx context.Context, input UploadInput) (*UploadedFile, 
 		filename = "upload"
 	}
 
-	created, err := c.CreateUpload(ctx, CreateUploadInput{
-		ByteSize:       byteSize,
-		ChecksumSHA256: input.ChecksumSHA256,
-		ContentType:    contentType,
-		Filename:       filename,
-		Folder:         input.Folder,
-		Metadata:       input.Metadata,
-		Visibility:     input.Visibility,
-	})
+	var created *CreateUploadResponse
+	if strings.TrimSpace(input.Path) == "" {
+		created, err = c.CreateUpload(ctx, CreateUploadInput{
+			ByteSize:       byteSize,
+			ChecksumSHA256: input.ChecksumSHA256,
+			ContentType:    contentType,
+			Filename:       filename,
+			Folder:         input.Folder,
+			Metadata:       input.Metadata,
+			Visibility:     input.Visibility,
+		})
+	} else {
+		created, err = c.CreateFileUpload(ctx, input.Path, CreateFileUploadInput{
+			ByteSize:       byteSize,
+			ChecksumSHA256: input.ChecksumSHA256,
+			ContentType:    contentType,
+			Metadata:       input.Metadata,
+			Visibility:     input.Visibility,
+		})
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -534,6 +567,18 @@ func (c *Client) endpoint(path string) (string, error) {
 		return "", err
 	}
 	return endpoint.String(), nil
+}
+
+func quoteFilePath(path string) string {
+	segments := strings.Split(strings.Trim(path, "/"), "/")
+	encoded := make([]string, 0, len(segments))
+	for _, segment := range segments {
+		if segment == "" {
+			continue
+		}
+		encoded = append(encoded, url.PathEscape(segment))
+	}
+	return strings.Join(encoded, "/")
 }
 
 func (c *Client) uploadToURL(ctx context.Context, uploadURL string, reader io.Reader, byteSize int64, headers map[string]string, onProgress func(UploadProgress)) error {

@@ -30,7 +30,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		Reader:      file,
 		Filename:    header.Filename,
 		ContentType: header.Header.Get("Content-Type"),
-		Folder:      "uploads",
+		Path:        "uploads/" + header.Filename,
 		Visibility:  byteship.VisibilityPublic,
 	})
 	if err != nil {
@@ -54,7 +54,7 @@ func main() {
 - `Upload` creates an upload session, streams bytes to storage, and completes it.
 - `UploadMany` uploads batches with bounded concurrency.
 - `CreateUploadToken` mints scoped browser upload tokens from trusted server code.
-- `CreateUpload` and `CompleteUpload` expose the lower-level upload lifecycle.
+- `CreateFileUpload`, `CreateUpload`, and `CompleteUpload` expose the lower-level upload lifecycle.
 - `GetFile`, `CreateSignedURL`, and `DeleteFile` cover file management and private delivery.
 - `WithUploadToken`, `WithBaseURL`, and `WithHTTPClient` support browser-token flows, tests, and custom transports.
 - `AsError` unwraps structured Byteship API errors with `Code`, `StatusCode`, and response `Details`.

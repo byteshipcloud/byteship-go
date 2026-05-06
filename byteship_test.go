@@ -53,8 +53,8 @@ func TestUploadCreatesPutsAndCompletes(t *testing.T) {
 		}
 
 		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/uploads":
-			var input CreateUploadInput
+		case r.Method == http.MethodPut && r.URL.Path == "/v1/files/uploads/note.txt":
+			var input CreateFileUploadInput
 			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 				t.Error(err)
 				http.Error(w, "decode failed", http.StatusBadRequest)
@@ -63,16 +63,6 @@ func TestUploadCreatesPutsAndCompletes(t *testing.T) {
 			if input.ByteSize != int64(len("hello byteship")) {
 				t.Errorf("byteSize = %d", input.ByteSize)
 				http.Error(w, "wrong byte size", http.StatusBadRequest)
-				return
-			}
-			if input.Filename != "note.txt" {
-				t.Errorf("filename = %q", input.Filename)
-				http.Error(w, "wrong filename", http.StatusBadRequest)
-				return
-			}
-			if input.Folder != "uploads" {
-				t.Errorf("folder = %q", input.Folder)
-				http.Error(w, "wrong folder", http.StatusBadRequest)
 				return
 			}
 			if input.Visibility != VisibilityPublic {
@@ -86,7 +76,7 @@ func TestUploadCreatesPutsAndCompletes(t *testing.T) {
 					"id":     "file_123",
 					"path":   "uploads/note.txt",
 					"status": "pending",
-					"url":    "https://cdn.byteship.cloud/f/file_123/note.txt",
+					"url":    "https://cdn.byteship.cloud/f/p_x7K9mQ/uploads/note.txt",
 				},
 				"upload": map[string]any{
 					"expiresAt": "2026-05-06T12:00:00Z",
@@ -121,7 +111,7 @@ func TestUploadCreatesPutsAndCompletes(t *testing.T) {
 					"id":         "file_123",
 					"path":       "uploads/note.txt",
 					"status":     "ready",
-					"url":        "https://cdn.byteship.cloud/f/file_123/note.txt",
+					"url":        "https://cdn.byteship.cloud/f/p_x7K9mQ/uploads/note.txt",
 					"visibility": "public",
 				},
 				"upload": map[string]any{
@@ -145,10 +135,10 @@ func TestUploadCreatesPutsAndCompletes(t *testing.T) {
 	uploaded, err := client.Upload(context.Background(), UploadInput{
 		ContentType: "text/plain",
 		Filename:    "note.txt",
-		Folder:      "uploads",
 		OnProgress: func(value UploadProgress) {
 			progress = append(progress, value)
 		},
+		Path:       "uploads/note.txt",
 		Reader:     strings.NewReader("hello byteship"),
 		Visibility: VisibilityPublic,
 	})
@@ -179,7 +169,7 @@ func TestResourceMethods(t *testing.T) {
 					"token":     "bsut_test",
 				},
 			})
-		case r.Method == http.MethodGet && r.URL.Path == "/v1/files/file_123":
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/files/uploads/note.txt":
 			writeJSON(t, w, http.StatusOK, map[string]any{
 				"file": map[string]any{
 					"byteSize":    14,
@@ -196,18 +186,20 @@ func TestResourceMethods(t *testing.T) {
 					"visibility": "private",
 				},
 			})
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/files/file_123/signed-url":
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/files/uploads/note.txt/signed-url":
 			writeJSON(t, w, http.StatusOK, map[string]any{
 				"signedUrl": map[string]any{
 					"expiresAt": "2026-05-06T12:15:00Z",
 					"fileId":    "file_123",
-					"url":       "https://cdn.byteship.cloud/f/file_123/note.txt?token=test",
+					"path":      "uploads/note.txt",
+					"url":       "https://cdn.byteship.cloud/f/p_x7K9mQ/uploads/note.txt?token=test",
 				},
 			})
-		case r.Method == http.MethodDelete && r.URL.Path == "/v1/files/file_123":
+		case r.Method == http.MethodDelete && r.URL.Path == "/v1/files/uploads/note.txt":
 			writeJSON(t, w, http.StatusOK, map[string]any{
 				"file": map[string]any{
 					"id":     "file_123",
+					"path":   "uploads/note.txt",
 					"status": "deleted",
 				},
 			})
@@ -227,7 +219,7 @@ func TestResourceMethods(t *testing.T) {
 		t.Fatalf("token = %#v", token.UploadToken)
 	}
 
-	file, err := client.GetFile(context.Background(), "file_123")
+	file, err := client.GetFile(context.Background(), "uploads/note.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,20 +227,26 @@ func TestResourceMethods(t *testing.T) {
 		t.Fatalf("visibility = %q", file.File.Visibility)
 	}
 
-	signed, err := client.CreateSignedURL(context.Background(), "file_123", CreateSignedURLInput{ExpiresInSeconds: 900})
+	signed, err := client.CreateSignedURL(context.Background(), "uploads/note.txt", CreateSignedURLInput{ExpiresInSeconds: 900})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if signed.SignedURL.FileID != "file_123" {
 		t.Fatalf("signedURL = %#v", signed.SignedURL)
 	}
+	if signed.SignedURL.Path != "uploads/note.txt" {
+		t.Fatalf("signedURL path = %q", signed.SignedURL.Path)
+	}
 
-	deleted, err := client.DeleteFile(context.Background(), "file_123")
+	deleted, err := client.DeleteFile(context.Background(), "uploads/note.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if deleted.File.Status != FileStatusDeleted {
 		t.Fatalf("deleted = %#v", deleted.File)
+	}
+	if deleted.File.Path != "uploads/note.txt" {
+		t.Fatalf("deleted path = %q", deleted.File.Path)
 	}
 }
 
