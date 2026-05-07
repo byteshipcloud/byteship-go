@@ -49,12 +49,33 @@ func main() {
 }
 ```
 
+## Multipart Uploads
+
+Large uploads automatically use multipart sessions when the API selects them. You can force multipart uploads and tune concurrency when you need resumable part recording:
+
+```go
+file, err := os.Open("video.mp4")
+if err != nil {
+	log.Fatal(err)
+}
+defer file.Close()
+
+uploaded, err := client.Upload(context.Background(), byteship.UploadInput{
+	Reader:               file,
+	Filename:             "video.mp4",
+	ContentType:          "video/mp4",
+	Path:                 "uploads/video.mp4",
+	Method:               byteship.UploadMethodMultipart,
+	MultipartConcurrency: 4,
+})
+```
+
 ## Features
 
-- `Upload` creates an upload session, streams bytes to storage, and completes it.
+- `Upload` creates an upload session, streams bytes to storage, and completes it, including multipart uploads when selected.
 - `UploadMany` uploads batches with bounded concurrency.
 - `CreateUploadToken` mints scoped browser upload tokens from trusted server code.
-- `CreateFileUpload`, `CreateUpload`, and `CompleteUpload` expose the lower-level upload lifecycle.
+- `CreateFileUpload`, `CreateUpload`, `CreateUploadPartURLs`, `CompletePathUpload`, and `CompleteUpload` expose the lower-level upload lifecycle.
 - `GetFile`, `CreateSignedURL`, and `DeleteFile` cover file management and private delivery.
 - `WithUploadToken`, `WithBaseURL`, and `WithHTTPClient` support browser-token flows, tests, and custom transports.
 - `AsError` unwraps structured Byteship API errors with `Code`, `StatusCode`, and response `Details`.
