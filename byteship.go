@@ -11,6 +11,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -82,6 +83,119 @@ const (
 	VisibilityPrivate Visibility = "private"
 	VisibilityPublic  Visibility = "public"
 )
+
+// ImageTransform configures a Byteship image delivery transform.
+type ImageTransform struct {
+	Animated   *bool
+	Background string
+	DPR        *float64
+	Fit        string
+	Format     string
+	Height     *int
+	Metadata   string
+	Quality    *int
+	Width      *int
+}
+
+// ResponsiveImageOptions configures a generated srcset.
+type ResponsiveImageOptions struct {
+	DPRs      []float64
+	Transform ImageTransform
+	Widths    []int
+}
+
+// ImageURL appends a deterministic Byteship image transform query to rawURL.
+func ImageURL(rawURL string, transform ImageTransform) (string, error) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "", err
+	}
+	query := parsed.Query()
+	query.Set("tr", serializeImageTransform(transform))
+	parsed.RawQuery = query.Encode()
+	return parsed.String(), nil
+}
+
+// ImageSrcSet builds a responsive image srcset for a Byteship image URL.
+func ImageSrcSet(rawURL string, options ResponsiveImageOptions) (string, error) {
+	widths := normalizeResponsiveWidths(options.Widths)
+	entries := make([]string, 0, len(widths))
+	for _, width := range widths {
+		if len(options.DPRs) > 0 {
+			for _, dpr := range options.DPRs {
+				transform := options.Transform
+				transform.Width = &width
+				transform.DPR = &dpr
+				url, err := ImageURL(rawURL, transform)
+				if err != nil {
+					return "", err
+				}
+				entries = append(entries, url+" "+strconv.Itoa(int(float64(width)*dpr))+"w")
+			}
+			continue
+		}
+		transform := options.Transform
+		transform.Width = &width
+		url, err := ImageURL(rawURL, transform)
+		if err != nil {
+			return "", err
+		}
+		entries = append(entries, url+" "+strconv.Itoa(width)+"w")
+	}
+	return strings.Join(entries, ", "), nil
+}
+
+func serializeImageTransform(transform ImageTransform) string {
+	parts := make([]string, 0)
+	if transform.Animated != nil {
+		parts = append(parts, "animated:"+strconv.FormatBool(*transform.Animated))
+	}
+	if transform.Background != "" {
+		parts = append(parts, "bg:"+transform.Background)
+	}
+	if transform.DPR != nil {
+		parts = append(parts, "dpr:"+trimFloat(*transform.DPR))
+	}
+	if transform.Fit != "" {
+		parts = append(parts, "fit:"+transform.Fit)
+	}
+	if transform.Format != "" {
+		parts = append(parts, "format:"+transform.Format)
+	}
+	if transform.Height != nil {
+		parts = append(parts, "h:"+strconv.Itoa(*transform.Height))
+	}
+	if transform.Metadata != "" {
+		parts = append(parts, "metadata:"+transform.Metadata)
+	}
+	if transform.Quality != nil {
+		parts = append(parts, "q:"+strconv.Itoa(*transform.Quality))
+	}
+	if transform.Width != nil {
+		parts = append(parts, "w:"+strconv.Itoa(*transform.Width))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ",")
+}
+
+func normalizeResponsiveWidths(input []int) []int {
+	seen := map[int]struct{}{}
+	for _, width := range input {
+		if width >= 1 && width <= 4096 {
+			seen[width] = struct{}{}
+		}
+	}
+	widths := make([]int, 0, len(seen))
+	for width := range seen {
+		widths = append(widths, width)
+	}
+	sort.Ints(widths)
+	return widths
+}
+
+func trimFloat(value float64) string {
+	return strconv.FormatFloat(value, 'f', -1, 64)
+}
 
 // FileStatus is the lifecycle state of a Byteship file.
 type FileStatus string
